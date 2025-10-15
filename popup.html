@@ -1,14 +1,220 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="ja">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>GUI Scraper</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body { width: 360px; padding: 14px; font-family: system-ui, -apple-system, Segoe UI, Roboto, Noto Sans JP, sans-serif; }
+    h1 { font-size: 16px; margin: 0 0 8px; }
+    .row { display: flex; gap: 8px; margin: 8px 0; }
+    button { flex: 1; padding: 8px; cursor: pointer; }
+    .small { font-size: 12px; color: #666; }
+    #status { margin-top: 8px; font-size: 12px; color: #444; white-space: pre-line; }
+    #preview { margin-top: 10px; max-height: 180px; overflow: auto; border: 1px solid #ddd; border-radius: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { border-bottom: 1px solid #eee; padding: 6px; text-align: left; }
+    .muted-box { background: #fafafa; border: 1px solid #eee; border-radius: 6px; padding: 8px; }
+    .section-title { font-weight: bold; margin-top: 4px; }
+  </style>
 </head>
 <body>
   <h1>GUI Scraper</h1>
-  <button id="start-scraping">スクレイピング開始</button>
-  <p id="status">待機中...</p>
+
+
+  <!-- 環境情報（PC ID / リスト名） -->
+<!-- <div class="section-title">環境情報</div>
+<div class="row" style="gap:6px;">
+  <input id="gsPcId" type="text" placeholder="PC ID（例: 02）" style="flex:1; padding:6px; border:1px solid #ddd; border-radius:6px;">
+  <input id="gsListName" type="text" placeholder="リスト名（サイト名）" style="flex:1; padding:6px; border:1px solid #ddd; border-radius:6px;">
+</div>
+<div class="small" style="margin-top:4px;">※ run.bat / rename.py / send.py のテンプレに使います</div> -->
+
+<!-- 作業フォルダ（最優先） -->
+<div class="section-title">作業フォルダ</div>
+<div class="row">
+  <button id="btnPickWorkdir">作業フォルダ設定ページを開く</button>
+  <button id="btnClearWorkdir">解除</button>
+</div>
+<div class="small" id="workdirStatus" style="color:#d00;">未選択 / 必須</div>
+<hr style="margin:10px 0; border:none; border-top:1px solid #eee;" />
+
+
+  <!-- 1) カラム指定（ミニビルダー） -->
+  <div class="section-title">① カラム指定（ページで要素をクリック）</div>
+  <div class="small muted-box">
+    代表ページを開いた状態で「カラム指定」を押すと、右下にミニビルダーが表示されます。<br/>
+    ページ上の要素をクリックして、会社名・住所・電話などのカラムを登録してください。
+  </div>
+  <div class="row">
+    <button id="btnOpenBuilder">カラム指定</button>
+    <button id="btnSchemaClear">スキーマをクリア</button>
+  </div>
+  <div id="schemaTable" style="margin-top:8px; max-height:160px; overflow:auto; border:1px solid #eee;"></div>
+
+  <hr style="margin:10px 0; border:none; border-top:1px solid #eee;" />
+
+  <!-- 2) CSV 読み込み -->
+  <div class="section-title">② CSVを読み込む</div>
+  <div class="row">
+    <input id="csvUpload" type="file" accept=".csv,text/csv" style="flex:1;" />
+  </div>
+  <div class="small" style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+    <label><input id="csvSkipHeader" type="checkbox" checked> 1行目はヘッダー（スキップ）</label>
+  </div>
+  <div class="row">
+    <button id="btnLoadCsv">CSV読み込み</button>
+  </div>
+  
+  <div id="csvStatus" class="small" aria-live="polite"></div>
+
+  <hr style="margin:10px 0; border:none; border-top:1px solid #eee;" />
+
+<!-- 設定（PC ID / リスト名） -->
+<hr style="margin:10px 0; border:none; border-top:1px solid #eee;" />
+<div class="section-title">設定</div>
+<div class="row" style="gap:6px;">
+  <input id="gsPcId" type="text" placeholder="PC ID 例: 02" style="flex:0 0 96px; padding:6px; border:1px solid #ddd; border-radius:6px;">
+  <input id="gsListName" type="text" placeholder="リスト名（例：ぐるなび）" style="flex:1; padding:6px; border:1px solid #ddd; border-radius:6px;">
+</div>
+<div class="small" style="margin-top:4px;">※ 入力は自動保存されます</div>
+
+
+
+  <!-- 3) プレビュー（このページで可視化） -->
+  <div class="section-title">③ プレビュー（このページで抽出）</div>
+  <div class="small" style="margin-top:4px;">
+    詳細ページ向け：<label><input id="optSingleRow" type="checkbox" checked> 1ページ=1行に集約</label>
+  </div>
+  <div class="row">
+    <button id="btnSchemaExtract">プレビュー（このページ）</button>
+  </div>
+  <div class="row">
+    <button id="btnDownloadJson">JSON保存</button>
+    <button id="btnDownloadCsv">CSV保存</button>
+  </div>
+
+  <div id="preview" style="margin-top:10px; max-height: 180px; overflow:auto; border: 1px solid #ddd; border-radius: 6px;"></div>
+
+  <hr style="margin:10px 0; border:none; border-top:1px solid #eee;" />
+
+
+  <!-- 抽出モード -->
+<div class="section-title">抽出モード</div>
+<div class="small muted-box" style="margin-bottom:8px;">
+  <label style="display:block;margin:2px 0;">
+    <input type="radio" name="gs_mode" value="auto" checked>
+    自動（静的→動的フォールバック）
+  </label>
+  <label style="display:block;margin:2px 0;">
+    <input type="radio" name="gs_mode" value="static">
+    静的のみ（fetch + DOMParser + XPath）
+  </label>
+  <label style="display:block;margin:2px 0;">
+    <input type="radio" name="gs_mode" value="dynamic">
+    動的のみ（タブ遷移 + content.js）
+  </label>
+</div>
+
+
+  <!-- 4) 一括取得（CSVのURLを参照） -->
+  <div class="section-title">④ 一括取得（CSVのURLを参照）</div>
+  <div class="row">
+    <button id="btnRunQueue" disabled>一括実行</button>
+    <button id="btnQueueCsv">一括結果CSVを保存</button>
+  </div>
+
+  <div id="queueStatus" class="small" style="margin-top:6px; white-space:pre-line;"></div>
+
+  <hr style="margin:10px 0; border:none; border-top:1px solid #eee;" />
+
+<!-- 6) URL収集（リンク一覧CSVの自動作成） -->
+
+
+<!-- ④ 一括取得 のセクションの後など、適所に追記 -->
+<hr style="margin:10px 0; border:none; border-top:1px solid #eee;" />
+
+<div class="section-title">メール設定（mail_config.json）</div>
+<div class="small muted-box" style="margin-bottom:8px;">
+  送信元/宛先/SMTP などの設定を保存します。<br/>
+  ここで保存した内容は <code>mail_config.json</code> として出力され、<code>send.py</code> が読み込みます。
+</div>
+
+<div class="row" style="gap:6px;">
+  <input id="mailFromName"  type="text"  placeholder="From 表示名（例：取得BOT）" style="flex:1; padding:6px; border:1px solid #ddd; border-radius:6px;">
+  <input id="mailFromEmail" type="email" placeholder="From メール（例：user@example.com）" style="flex:1; padding:6px; border:1px solid #ddd; border-radius:6px;">
+</div>
+<div class="row" style="gap:6px;">
+  <input id="mailTo"  type="text" placeholder="To（カンマ区切り）"  style="flex:1; padding:6px; border:1px solid #ddd; border-radius:6px;">
+</div>
+<div class="row" style="gap:6px;">
+  <input id="mailCc"  type="text" placeholder="CC（任意・カンマ区切り）"  style="flex:1; padding:6px; border:1px solid #ddd; border-radius:6px;">
+  <input id="mailBcc" type="text" placeholder="BCC（任意・カンマ区切り）" style="flex:1; padding:6px; border:1px solid #ddd; border-radius:6px;">
+</div>
+
+<div class="row" style="gap:6px;">
+  <input id="mailSmtpHost" type="text" placeholder="SMTP ホスト（例：smtp.gmail.com）" style="flex:1; padding:6px; border:1px solid #ddd; border-radius:6px;">
+  <input id="mailSmtpPort" type="number" placeholder="ポート（465/587 など）" style="width:120px; padding:6px; border:1px solid #ddd; border-radius:6px;">
+  <select id="mailSecurity" style="width:140px; padding:6px; border:1px solid #ddd; border-radius:6px;">
+    <option value="ssl" selected>SSL (465)</option>
+    <option value="starttls">STARTTLS (587)</option>
+    <option value="none">なし</option>
+  </select>
+</div>
+<div class="row" style="gap:6px;">
+  <input id="mailUser" type="text" placeholder="ユーザー（通常はFromメールと同じ）" style="flex:1; padding:6px; border:1px solid #ddd; border-radius:6px;">
+  <input id="mailPass" type="password" placeholder="パスワード / アプリパスワード" style="flex:1; padding:6px; border:1px solid #ddd; border-radius:6px;">
+</div>
+<div class="small" style="display:flex;align-items:center;gap:10px;margin-top:4px;">
+  <label><input id="mailShowPass" type="checkbox"> パスワードを表示</label>
+  <label><input id="mailAttach" type="checkbox" checked> 成果物CSVを添付（既定ON）</label>
+  <label><input id="mailFailNotify" type="checkbox"> 失敗時もメール送信（既定OFF）</label>
+</div>
+
+<div class="row" style="gap:6px; margin-top:6px;">
+  <input id="mailSubjectTpl" type="text"
+         placeholder="件名テンプレ（例：『【取得報告】{list_name}_{date}』）"
+         style="flex:1; padding:6px; border:1px solid #ddd; border-radius:6px;">
+</div>
+<div class="row" style="gap:6px;">
+  <textarea id="mailBodyTpl" rows="3"
+            placeholder="本文テンプレ（{pc_id} {list_name} {date} {count} {paths} が使用可）"
+            style="flex:1; padding:6px; border:1px solid #ddd; border-radius:6px;"></textarea>
+</div>
+
+<div class="row">
+  <button id="btnSaveMailConfig">mail_config.json を保存</button>
+</div>
+<div id="mailStatus" class="small"></div>
+
+
+
+  <!-- 5) 追加：Pythonコード出力 -->
+  <div class="section-title">⑤ Pythonコード出力</div>
+  <div class="small muted-box">
+    現在のスキーマ/設定で動くPlaywrightベースのPythonスクリプトを生成します。<br/>
+    生成後の実行例：<code>python gui_scraper_runner.py input.csv output.csv</code>
+  </div>
+  <div class="row">
+    <button id="btnExportPy">Pythonコード出力</button>
+  </div>
+  <div id="pyExportStatus" class="small"></div>
+
+
+  <!-- ⑥ 定期取得ファイル（run.bat / rename.py / send.py）出力 -->
+  <hr style="margin:10px 0; border:none; border-top:1px solid #eee;" />
+  <div class="section-title">⑥ 定期取得ファイルの出力</div>
+  <div class="small muted-box">
+    ボタンを押すと、このフォルダに <code>run.bat / rename.py / send.py</code> を生成します。<br>
+    PC ID とリスト名は上の「設定」欄の値が埋め込まれます。
+  </div>
+  <div class="row">
+    <button id="btnExportBatchKit">run.bat / rename.py / send.py を出力</button>
+  </div>
+  <div id="batchKitStatus" class="small"></div>
+
+
+  <script src="popup.js" defer></script>
 </body>
-<script src="popup.js"></script>
 </html>

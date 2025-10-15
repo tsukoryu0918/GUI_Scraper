@@ -1,24 +1,28 @@
 {
   "manifest_version": 3,
   "name": "GUI Scraper",
-  "version": "1.0",
-  "description": "A GUI-based web scraper",
-  "permissions": ["activeTab", "scripting"],
+  "version": "0.2.4",
+  "description": "クリック操作で同構造の要素を抽出してJSON/CSVで保存",
+  "permissions": ["activeTab", "storage", "scripting", "webNavigation", "tabs", "downloads"],
+  "host_permissions": ["<all_urls>"],
+  "options_page": "options.html",
   "action": {
-    "default_popup": "popup.html",
-    "default_icon": {
-      "16": "icons/icon16.png",
-      "48": "icons/icon48.png",
-      "128": "icons/icon128.png"
-    }
+    "default_title": "GUI Scraper",
+    "default_popup": "popup.html"
   },
-  "background": {
-    "service_worker": "background.js"
+  "background": { "service_worker": "background.js" },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"]
+      "js": ["content.js"],
+      "css": ["style.css"],
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ]
 }
