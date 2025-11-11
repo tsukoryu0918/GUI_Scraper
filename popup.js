@@ -495,137 +495,76 @@ if __name__ == "__main__":
 
 function buildSendPy() {
 return `# -*- coding: utf-8 -*-
-import os, sys, json, csv, smtplib
-from pathlib import Path
-from datetime import date
-from email.message import EmailMessage
+import sys, os, datetime
+import pandas as pd
 
-HERE = Path(__file__).resolve().parent
 
-def load_config():
-    p = HERE / "mail_config.json"
-    if not p.exists():
-        raise RuntimeError("mail_config.json が見つかりません: " + str(p))
-    with p.open("r", encoding="utf-8") as rf:
-        cfg = json.load(rf)
-    # 必須ざっくりチェック
-    for k in ["smtp", "auth", "from", "to"]:
-        if k not in cfg:
-            raise RuntimeError(f"mail_config.json に '{k}' がありません")
-    if not cfg["to"]:
-        raise RuntimeError("宛先(to) が空です")
-    return cfg
+def cleansing(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    クレンジング処理:
+    - 日時とURL以外がすべて空欄またはNaNの行を削除
+    """
+    if df.empty:
+        return df
 
-def render_template(tpl: str, ctx: dict) -> str:
-    out = tpl
-    for k, v in ctx.items():
-        out = out.replace("{" + k + "}", str(v))
-    return out
-
-def count_rows(csv_path: Path) -> int:
-    try:
-        with csv_path.open("r", encoding="utf-8-sig", newline="") as rf:
-            r = csv.reader(rf)
-            rows = list(r)
-            if not rows:
-                return 0
-            # 先頭をヘッダーとみなす
-            return max(0, len(rows) - 1)
-    except Exception:
-        return 0
-
-def build_message(cfg: dict, subject: str, body: str, attach_paths):
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = f"{cfg['from'].get('name','')} <{cfg['from'].get('email','')}>".strip()
-    msg["To"]   = ", ".join(cfg.get("to", []))
-    if cfg.get("cc"):
-        msg["Cc"] = ", ".join(cfg.get("cc", []))
-    if cfg.get("bcc"):
-        msg["Bcc"] = ", ".join(cfg.get("bcc", []))
-    msg.set_content(body)
-
-    if cfg.get("attach", True):
-        for p in attach_paths:
-            path = Path(p)
-            if not path.exists():
-                continue
-            data = path.read_bytes()
-            msg.add_attachment(
-                data,
-                maintype="text",
-                subtype="csv",
-                filename=path.name
-            )
-    return msg
-
-def send_mail(cfg: dict, msg: EmailMessage):
-    host = cfg["smtp"].get("host","")
-    port = int(cfg["smtp"].get("port", 465))
-    sec  = (cfg["smtp"].get("security","ssl") or "ssl").lower()
-
-    user = cfg["auth"].get("user","")
-    pw   = cfg["auth"].get("password","")
-
-    if sec == "ssl":
-        with smtplib.SMTP_SSL(host, port) as smtp:
-            if user:
-                smtp.login(user, pw)
-            smtp.send_message(msg)
-    elif sec == "starttls":
-        with smtplib.SMTP(host, port) as smtp:
-            smtp.ehlo()
-            smtp.starttls()
-            smtp.ehlo()
-            if user:
-                smtp.login(user, pw)
-            smtp.send_message(msg)
+    # 全列が2列以上ある前提（日時とURLの列が1,2列目）
+    if df.shape[1] > 2:
+        # 3列目以降を対象に「何かしら値がある行」を残す
+        mask = df.iloc[:, 2:].notna().any(axis=1) & (df.iloc[:, 2:] != "").any(axis=1)
+        cleaned = df[mask].copy()
+        print(f"空欄行削除: {len(df) - len(cleaned)} 件削除 ({len(cleaned)} 件残存)")
+        return cleaned
     else:
-        with smtplib.SMTP(host, port) as smtp:
-            if user:
-                smtp.login(user, pw)
-            smtp.send_message(msg)
+        print("列が2列以下のため、空欄削除スキップ")
+        return df
+
+
+def main():
+    if len(sys.argv) != 4:
+        print("使い方: python rename.py <pc_id> <list_name> <csvファイルパス>")
+        sys.exit(1)
+
+    pc_id = sys.argv[1]
+    list_name = sys.argv[2]
+    file_path = sys.argv[3]
+
+    if not os.path.isfile(file_path):
+        print(f"エラー: ファイルが見つかりません: {file_path}")
+        sys.exit(1)
+
+    today = datetime.datetime.now().strftime("%Y%m%d")
+
+    try:
+        df = pd.read_csv(
+            file_path,
+            encoding="utf-8-sig",
+            encoding_errors="ignore",
+            engine="python",
+            on_bad_lines="skip",
+        )
+    except Exception as e:
+        print(f"エラー: CSVの読み込みに失敗しました: {e}")
+        sys.exit(1)
+
+    # --- クレンジング処理 ---
+    df = cleansing(df)
+
+    num = len(df)
+    new_filename = f"{today}_{pc_id}_{list_name}_{num}件.csv"
+    dir_name = os.path.dirname(file_path)
+    new_path = os.path.join(dir_name, new_filename)
+
+    try:
+        df.to_csv(new_path, index=False, encoding="utf-8-sig")
+        print(f"ファイルを保存しました: {new_filename}")
+    except Exception as e:
+        print(f"エラー: ファイルの保存中に問題が発生しました: {e}")
+        sys.exit(1)
+
 
 if __name__ == "__main__":
-    # 引数: pc_id list_name [file1 file2 ...]
-    if len(sys.argv) < 3:
-        print("使い方: python send.py <pc_id> <list_name> [添付ファイル...]")
-        sys.exit(1)
+    main()
 
-    pc_id     = sys.argv[1]
-    list_name = sys.argv[2]
-    files     = sys.argv[3:]
-
-    cfg = load_config()
-
-    # 件数は先頭の添付から推定（無ければ 0）
-    count = 0
-    if files:
-        count = count_rows(Path(files[0]))
-
-    today = date.today().strftime("%Y%m%d")
-    ctx = {
-        "date": today,
-        "pc_id": pc_id,
-        "list_name": list_name,
-        "count": count,
-        "paths": "\\n".join(files)
-    }
-
-    subject_tpl = cfg.get("subject_template", "【取得報告】{list_name}_{date}")
-    body_tpl    = cfg.get("body_template", "{list_name}の取得が完了しました({pc_id})}")
-    subject = render_template(subject_tpl, ctx)
-    body    = render_template(body_tpl, ctx)
-
-    try:
-        msg = build_message(cfg, subject, body, files)
-        send_mail(cfg, msg)
-        print("メール送信しました")
-        sys.exit(0)
-    except Exception as e:
-        # 今回の方針：fail_notify は既定OFF。エラー時は送らず終了。
-        print("メール送信エラー:", e)
-        sys.exit(1)
 `;
 }
 
@@ -731,7 +670,7 @@ qs('#btnExportBatchKit')?.addEventListener('click', async () => {
   // ★ 同梱しない方針：mail_config.json は “メール設定 → 保存” で別途出す
   const files = [
     ['rename.py',  buildRenamePy()],
-    ['send.py',    buildSendPy()],
+    // ['send.py',    buildSendPy()],
     ['run.bat',    buildRunBat(pcId, listName, inputCsvName)],
   ];
 
@@ -744,7 +683,7 @@ qs('#btnExportBatchKit')?.addEventListener('click', async () => {
 
   setBatchKitStatus(
     savedAll
-      ? 'run.bat / rename.py / send.py を作業フォルダに保存しました'
+      ? 'run.bat / rename.py を作業フォルダに保存しました'
       : '一部保存に失敗しました（作業フォルダ権限を確認してください）'
   );
   setStatus(savedAll ? 'バッチキット出力：成功' : 'バッチキット出力：一部失敗');
@@ -832,6 +771,7 @@ function orderedColsForCsv() {
   const workdirStatusEl = qs('#workdirStatus');
   const pcIdInput     = qs('#gsPcId');
   const listNameInput = qs('#gsListName');
+  const nameInput     = qs('#gsName');
 
 
   let lastResult  = { selector: null, items: [] };
@@ -925,7 +865,7 @@ function orderedColsForCsv() {
 
 
   // 起動時ロード
-  chrome.storage.local.get(['guiScraperXPathSchema', 'gs_lastCsv', 'gs_extract_mode', 'gs_pc_id', 'gs_list_name'], async (obj) => {
+  chrome.storage.local.get(['guiScraperXPathSchema', 'gs_lastCsv', 'gs_extract_mode', 'gs_pc_id', 'gs_list_name', 'gs_name'], async (obj) => {
     console.log('[POPUP] storage.get start');
     // 復元済みの currentDirHandle を表示に反映
     try {
@@ -974,6 +914,7 @@ function orderedColsForCsv() {
      // ▼ 追加：PC ID / リスト名の復元
     if (pcIdInput)     pcIdInput.value     = obj.gs_pc_id     || '';
     if (listNameInput) listNameInput.value = obj.gs_list_name || '';
+    if (nameInput)     nameInput.value     = obj.gs_name      || '';
 
     // ▼ 追加：CSV読み込み済みなら、リスト名が未設定の場合はCSV名のベースを初期値に
     if (obj.gs_lastCsv?.name && listNameInput && !listNameInput.value) {
@@ -998,6 +939,7 @@ function orderedColsForCsv() {
   chrome.storage.local.get(['gs_pc_id', 'gs_list_name'], (obj) => {
     if (qs('#gsPcId')) qs('#gsPcId').value = obj.gs_pc_id || '';
     if (qs('#gsListName')) qs('#gsListName').value = obj.gs_list_name || '';
+    if (qs('#gsName'))     qs('#gsName').value     = obj.gs_name      || '';
   });
 
   // 入力即保存
@@ -1007,6 +949,10 @@ function orderedColsForCsv() {
   qs('#gsListName')?.addEventListener('input', () =>
     chrome.storage.local.set({ gs_list_name: (qs('#gsListName').value || '').trim() })
   );
+  qs('#gsName')?.addEventListener('input', () =>
+  chrome.storage.local.set({ gs_name: (qs('#gsName').value || '').trim() })
+  );
+
 
 
   // モード変更を保存
